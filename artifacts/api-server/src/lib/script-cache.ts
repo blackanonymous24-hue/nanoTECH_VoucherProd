@@ -28,11 +28,16 @@ import {
   type RouterConnection,
   type SaleEntry,
 } from "./mikrotik.js";
-import { getMikhmonCalendar, mikhmonMonthRange, mikhmonMonthRangeFor } from "./mikhmon-calendar.js";
+import {
+  getMikhmonCalendar,
+  isCalendarMonthBefore,
+  mikhmonMonthRange,
+  mikhmonMonthRangeFor,
+  type MikhmonCalendar,
+} from "./mikhmon-calendar.js";
 import { invalidateVendorPeriodAggCache } from "./vendor-period-agg-cache.js";
 import { scriptSaleLogicalKey } from "./script-sales-dedup.js";
 import {
-  closePreviousMonthIfNeeded,
   countScriptSalesInMonth,
   isPastMonthVerified,
   monthHadMikrotikSync,
@@ -58,6 +63,10 @@ const BACKFILL_PAUSE_MS   = 3_000;
 const MONTH_FRESHNESS_MS  = 60 * 60 * 1000; // 1 h
 /** Throttle minimal entre 2 sync « jour courant » sur le même routeur */
 const DAY_SYNC_MIN_GAP_MS = 10 * 1000;      // 10 s
+/** Rapport ventes : resync MikroTik du mois demandé au plus toutes les 2 min (sync arrière-plan) */
+const REPORT_MONTH_SYNC_GAP_MS = 2 * 60 * 1000;
+/** Mois déjà aligné MikroTik récemment → réponse rapport instantanée (cache local) */
+const REPORT_INSTANT_TRUST_MS = 5 * 60 * 1000;
 
 /** En mémoire : dernier instant où chaque mois (par routeur) a été entièrement sync */
 const monthSyncedAt   = new Map<string, number>(); // key = `${routerId}:${year}-${month}`
@@ -68,6 +77,8 @@ const backfillRunning = new Set<number>();
 
 /** Dédup : 1 seule sync à la fois par routeur (les vendeurs sur le même routeur partagent) */
 const inFlight = new Map<number, Promise<number>>();
+/** Sync mois ciblée (rapport ventes) — une par routeur × mois */
+const monthReportSyncInFlight = new Map<string, Promise<{ inserted: number; fetched: number; skipped: boolean }>>();
 
 function monthKey(routerId: number, year: number, month: number): string {
   return `${routerId}:${year}-${month}`;
@@ -456,7 +467,7 @@ export async function syncScriptCache(
         monthSyncedAt.delete(thisMonthKey);
       }
 
-      await closePreviousMonthIfNeeded(routerId, cal);
+      await sealPreviousCalendarMonth(routerId, conn, cal);
       await hydrateCurrentMonthSyncMarker(routerId, thisYear, thisMonth);
 
       // ── A. La DB a-t-elle des données pour ce routeur ? ─────────────────
@@ -552,6 +563,187 @@ export async function syncScriptCache(
 
   inFlight.set(routerId, promise);
   return promise;
+}
+
+export type EnsureMonthSalesSyncResult = {
+  inserted: number;
+  fetched: number;
+  skipped: boolean;
+};
+
+export type ReportMonthSyncPlan = "trusted-cache" | "full-pull";
+
+/**
+ * Rapport ventes : cache local déjà aligné MikroTik (pas de pull mois complet)
+ * ou pull mois complet requis avant affichage.
+ */
+export async function planReportMonthSync(
+  routerId: number,
+  conn: RouterConnection,
+  year: number,
+  month: number,
+): Promise<ReportMonthSyncPlan> {
+  if (month < 1 || month > 12) return "trusted-cache";
+
+  const clock = await resolveRouterClockDate(conn, null);
+  const cal = getMikhmonCalendar(clock);
+
+  if (await isPastMonthVerified(routerId, year, month, cal)) {
+    return "trusted-cache";
+  }
+
+  const row = await getMonthSyncRow(routerId, year, month);
+  const lastMik = row?.mikrotikSyncAt?.getTime() ?? 0;
+  if (lastMik > 0 && Date.now() - lastMik < REPORT_INSTANT_TRUST_MS) {
+    return "trusted-cache";
+  }
+
+  const isCurrentMonth = year === cal.y && month === cal.m;
+  const memKey = monthKey(routerId, year, month);
+  const memFresh =
+    (monthSyncedAt.get(memKey) ?? 0) > 0
+    && Date.now() - (monthSyncedAt.get(memKey) ?? 0) < MONTH_FRESHNESS_MS;
+  if (isCurrentMonth && memFresh) {
+    return "trusted-cache";
+  }
+
+  if (!row?.mikrotikSyncAt) {
+    const cnt = await countScriptSalesInMonth(routerId, year, month);
+    if (cnt === 0) return "full-pull";
+  }
+
+  const isPastMonth = isCalendarMonthBefore(year, month, cal);
+  if (isPastMonth && lastMik > 0) {
+    return "trusted-cache";
+  }
+
+  return "full-pull";
+}
+
+/**
+ * Rapport ventes : sync complète (ou cache fiable) **avant** lecture DB.
+ * Mois déjà aligné → quasi instantané ; sinon pull MikroTik mois entier (dédupliqué si warm/prefetch).
+ */
+export async function prepareReportMonthForDisplay(
+  routerId: number,
+  conn: RouterConnection,
+  year: number,
+  month: number,
+  opts?: { force?: boolean; timeoutMs?: number },
+): Promise<EnsureMonthSalesSyncResult> {
+  return ensureMonthSalesSyncedFromMikrotik(routerId, conn, year, month, opts);
+}
+
+/** Précharge le mois en arrière-plan (même promesse que le GET rapport — accélère le clic Filtrer). */
+export function warmReportMonthSync(
+  routerId: number,
+  conn: RouterConnection,
+  year: number,
+  month: number,
+): void {
+  void prepareReportMonthForDisplay(routerId, conn, year, month).catch(() => {
+    /* prefetch best-effort */
+  });
+}
+
+/**
+ * Rapport ventes / export CSV : rapatrie le mois complet depuis MikroTik avant lecture DB.
+ * Évite l'écart Mikhmon (scripts routeur) vs cache partiel (sync jour-seul ou mois « vérifié » incomplet).
+ */
+export async function ensureMonthSalesSyncedFromMikrotik(
+  routerId: number,
+  conn: RouterConnection,
+  year: number,
+  month: number,
+  opts?: { force?: boolean; timeoutMs?: number },
+): Promise<EnsureMonthSalesSyncResult> {
+  if (month < 1 || month > 12) {
+    return { inserted: 0, fetched: 0, skipped: true };
+  }
+
+  const key = monthKey(routerId, year, month);
+  const existing = monthReportSyncInFlight.get(key);
+  if (existing) return existing;
+
+  const promise = (async (): Promise<EnsureMonthSalesSyncResult> => {
+    try {
+      if (!opts?.force) {
+        const plan = await planReportMonthSync(routerId, conn, year, month);
+        if (plan === "trusted-cache") {
+          const clock = await resolveRouterClockDate(conn, null);
+          const cal = getMikhmonCalendar(clock);
+          if (year === cal.y && month === cal.m) {
+            const inserted = await syncScriptCache(routerId, conn, clock, {
+              forDashboard: true,
+              skipBackfill: true,
+            });
+            return { inserted, fetched: 0, skipped: true };
+          }
+          return { inserted: 0, fetched: 0, skipped: true };
+        }
+        const row = await getMonthSyncRow(routerId, year, month);
+        const lastMik = row?.mikrotikSyncAt?.getTime() ?? 0;
+        if (lastMik > 0 && Date.now() - lastMik < REPORT_MONTH_SYNC_GAP_MS) {
+          return { inserted: 0, fetched: 0, skipped: true };
+        }
+      }
+
+      monthSyncedAt.delete(key);
+      const { start: monthStart, end: monthEnd } = mikhmonMonthRangeFor(year, month);
+      const entries = await fetchScriptSales(
+        conn,
+        { type: "month", year, month },
+        opts?.timeoutMs ?? 90_000,
+      );
+      const rows = entriesToRows(routerId, entries);
+      const { inserted } = await appendMonthScriptSales(routerId, rows, monthStart, monthEnd);
+      const totalInDb = await countScriptSalesInMonth(routerId, year, month);
+      await upsertMonthSyncRecord(routerId, year, month, totalInDb, {
+        mikrotikSync: true,
+        verified: false,
+      });
+      monthSyncedAt.set(key, Date.now());
+      invalidateVendorPeriodAggCache(routerId);
+      logger.info(
+        { routerId, year, month, fetched: entries.length, inserted, totalInDb },
+        "script cache: mois rapport aligné sur MikroTik",
+      );
+      return { inserted, fetched: entries.length, skipped: false };
+    } catch (err) {
+      logger.warn({ routerId, year, month, err }, "script cache: sync mois rapport échouée (cache local conservé)");
+      return { inserted: 0, fetched: 0, skipped: true };
+    }
+  })().finally(() => {
+    monthReportSyncInFlight.delete(key);
+  });
+
+  monthReportSyncInFlight.set(key, promise);
+  return promise;
+}
+
+/** Fin de mois routeur : dernier pull MikroTik du mois précédent avant marquage « vérifié ». */
+async function sealPreviousCalendarMonth(
+  routerId: number,
+  conn: RouterConnection,
+  cal: MikhmonCalendar,
+): Promise<void> {
+  const prev = new Date(cal.y, cal.m - 2, 1);
+  const py = prev.getFullYear();
+  const pm = prev.getMonth() + 1;
+  const row = await getMonthSyncRow(routerId, py, pm);
+  if (row?.verifiedAt) return;
+
+  await ensureMonthSalesSyncedFromMikrotik(routerId, conn, py, pm, {
+    force: true,
+    timeoutMs: 120_000,
+  });
+
+  const cnt = await countScriptSalesInMonth(routerId, py, pm);
+  if (cnt === 0 && !row) return;
+  await upsertMonthSyncRecord(routerId, py, pm, cnt, {
+    verified: true,
+    mikrotikSync: true,
+  });
 }
 
 // ────────────────────────────────────────────────────────────────────────────

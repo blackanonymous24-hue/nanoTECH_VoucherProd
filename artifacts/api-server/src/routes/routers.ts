@@ -9,7 +9,13 @@ import { testConnection, pingRouter, getRouterInfo, listProfiles, createProfile,
 import { normalizeMikhmonAddHotspotUser } from "../lib/mikhmon-add-user.js";
 import { decodeRouterText } from "../lib/router-encoding.js";
 import { runUsageSync } from "../lib/usage-sync.js";
-import { syncScriptCache, clearRouterScriptCache, getCachedSaleDetails } from "../lib/script-cache.js";
+import {
+  syncScriptCache,
+  clearRouterScriptCache,
+  getCachedSaleDetails,
+  prepareReportMonthForDisplay,
+  warmReportMonthSync,
+} from "../lib/script-cache.js";
 import {
   persistRouterMikrotikSerialIfMissing,
   reconcileSalesCacheAfterConnectionChange,
@@ -3847,6 +3853,45 @@ router.get("/routers/:id/sync-status", async (req, res): Promise<void> => {
 });
 
 /**
+ * POST /routers/:id/sales-report/warm?year=YYYY&month=M
+ * Précharge la sync MikroTik du mois (même file que GET sales-report) pour accélérer le clic Filtrer.
+ */
+router.post("/routers/:id/sales-report/warm", async (req, res): Promise<void> => {
+  const id = parseInt(req.params.id, 10);
+  if (isNaN(id)) { res.status(400).json({ error: "ID invalide" }); return; }
+
+  const year = req.query.year ? parseInt(req.query.year as string, 10) : NaN;
+  const month = req.query.month ? parseInt(req.query.month as string, 10) : NaN;
+  if (Number.isNaN(year) || Number.isNaN(month) || month < 1 || month > 12) {
+    res.status(400).json({ error: "year et month requis" });
+    return;
+  }
+
+  try {
+    const [routerRow] = await db
+      .select({ host: routersTable.host, port: routersTable.port, username: routersTable.username, password: routersTable.password })
+      .from(routersTable)
+      .where(eq(routersTable.id, id))
+      .limit(1);
+    if (!routerRow) { res.status(404).json({ error: "Routeur introuvable" }); return; }
+
+    const conn: RouterConnection = {
+      host: routerRow.host,
+      port: routerRow.port,
+      username: routerRow.username,
+      password: routerRow.password,
+    };
+    markRouterActive(id);
+    ensureUsageSyncScheduled(id, conn);
+    warmReportMonthSync(id, conn, year, month);
+    res.json({ ok: true });
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : "Erreur warm";
+    res.status(500).json({ error: msg });
+  }
+});
+
+/**
  * GET /routers/:id/sales-report
  * Ventes routeur : cache scripts MikHMon (`mikrotik_script_sales`) + bons vendus
  * **sans doublon** (même login + même jour UTC qu’une ligne script → le bon est exclu).
@@ -3864,12 +3909,19 @@ router.get("/routers/:id/sales-report", async (req, res): Promise<void> => {
   const monthRaw = req.query.month ? parseInt(req.query.month as string, 10) : null;
   const dayRaw   = req.query.day   ? parseInt(req.query.day   as string, 10) : null;
   const withPresence = String(req.query.presence ?? "") === "1" || String(req.query.presence ?? "") === "true";
+  const forceMonthSync =
+    String(req.query.sync ?? "") === "force"
+    || String(req.query.forceSync ?? "") === "1"
+    || String(req.query.forceSync ?? "") === "true";
 
-  // Sync du cache MikroTik en arrière-plan — on ne bloque PAS la réponse.
-  // syncScriptCache est dédupliqué (inFlight) et throttlé, donc plusieurs
-  // requêtes consécutives ne lancent qu'une seule synchro. Le rapport
-  // est servi depuis la DB (déjà fraîche grâce au backfill incrémental
-  // toutes les 15 s et au sync jour-seul en routine).
+  const needsMonthMikrotikSync =
+    yearRaw !== null
+    && !Number.isNaN(yearRaw)
+    && monthRaw !== null
+    && !Number.isNaN(monthRaw)
+    && monthRaw >= 1
+    && monthRaw <= 12;
+
   try {
     const [routerRow] = await db
       .select({ host: routersTable.host, port: routersTable.port, username: routersTable.username, password: routersTable.password })
@@ -3877,14 +3929,31 @@ router.get("/routers/:id/sales-report", async (req, res): Promise<void> => {
       .where(eq(routersTable.id, id))
       .limit(1);
     if (routerRow) {
-      const conn: RouterConnection = { host: routerRow.host, port: routerRow.port, username: routerRow.username, password: routerRow.password };
+      const conn: RouterConnection = {
+        host: routerRow.host,
+        port: routerRow.port,
+        username: routerRow.username,
+        password: routerRow.password,
+      };
       markRouterActive(id);
       ensureUsageSyncScheduled(id, conn);
-      // fire-and-forget : la prochaine requête (auto-refresh) bénéficiera des données fraîches
-      void syncScriptCache(id, conn, null).catch(() => { /* non-blocking */ });
+
+      if (needsMonthMikrotikSync) {
+        await withRouterLock(id, async () => {
+          await prepareReportMonthForDisplay(id, conn, yearRaw!, monthRaw!, {
+            force: forceMonthSync,
+          });
+        });
+      } else {
+        void syncScriptCache(id, conn, null).catch(() => { /* non-blocking */ });
+      }
     }
-  } catch {
-    // Non-blocking
+  } catch (syncErr: unknown) {
+    if (needsMonthMikrotikSync) {
+      const msg = syncErr instanceof Error ? syncErr.message : "Synchronisation routeur impossible";
+      res.status(502).json({ error: msg });
+      return;
+    }
   }
 
   try {

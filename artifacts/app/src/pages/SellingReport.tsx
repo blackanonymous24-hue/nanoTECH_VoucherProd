@@ -1,4 +1,4 @@
-import { useState, useMemo, useDeferredValue, useEffect } from "react";
+import { useState, useMemo, useDeferredValue, useEffect, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useRouterContext } from "@/contexts/RouterContext";
 import { useCurrency } from "@/lib/use-currency";
@@ -70,6 +70,8 @@ export default function SellingReport() {
   const { selectedRouterId } = useRouterContext();
   const currency = useCurrency();
   const { role } = useAuth();
+  const [forceSyncSeq, setForceSyncSeq] = useState(0);
+  const forceSyncPendingRef = useRef(false);
   const allowDelete = canDelete(role);
   const { toast } = useToast();
   const now = new Date();
@@ -104,10 +106,32 @@ export default function SellingReport() {
   const appliedYear  = applied.year  === ALL ? "" : applied.year;
 
   const queryKey = useMemo(() => [
-    "selling-report", selectedRouterId, appliedDay, appliedMonth, appliedYear,
-  ], [selectedRouterId, appliedDay, appliedMonth, appliedYear]);
+    "selling-report", selectedRouterId, appliedDay, appliedMonth, appliedYear, forceSyncSeq,
+  ], [selectedRouterId, appliedDay, appliedMonth, appliedYear, forceSyncSeq]);
 
-  const { data, isLoading, isError, error } = useQuery<SaleEntry[]>({
+  const monthlyReport = !!(appliedMonth && appliedYear);
+
+  const warmMonth = (year: string, month: string) => {
+    if (!selectedRouterId || !year || !month || month === ALL) return;
+    const params = new URLSearchParams({ year, month });
+    void fetch(`${BASE}/api/routers/${selectedRouterId}/sales-report/warm?${params}`, {
+      method: "POST",
+      credentials: "include",
+    }).catch(() => { /* prefetch best-effort */ });
+  };
+
+  useEffect(() => {
+    if (!selectedRouterId || !filterYear || filterYear === ALL || !filterMonth || filterMonth === ALL) return;
+    const t = setTimeout(() => warmMonth(filterYear, filterMonth), 400);
+    return () => clearTimeout(t);
+  }, [selectedRouterId, filterYear, filterMonth]);
+
+  useEffect(() => {
+    if (!selectedRouterId || !appliedYear || !appliedMonth) return;
+    warmMonth(appliedYear, appliedMonth);
+  }, [selectedRouterId, appliedYear, appliedMonth]);
+
+  const { data, isLoading, isFetching, isError, error } = useQuery<SaleEntry[]>({
     queryKey,
     queryFn: async ({ signal }) => {
       if (!selectedRouterId) return [];
@@ -115,14 +139,22 @@ export default function SellingReport() {
       if (appliedYear)  params.set("year",  appliedYear);
       if (appliedMonth) params.set("month", appliedMonth);
       if (appliedDay)   params.set("day",   appliedDay);
-      const res = await fetch(`${BASE}/api/routers/${selectedRouterId}/sales-report?${params}`, { signal });
+      if (forceSyncPendingRef.current) {
+        forceSyncPendingRef.current = false;
+        params.set("forceSync", "1");
+      }
+      const res = await fetch(`${BASE}/api/routers/${selectedRouterId}/sales-report?${params}`, {
+        signal,
+        credentials: "include",
+      });
       if (!res.ok) throw new Error(await res.text());
       return res.json();
     },
     enabled: !!selectedRouterId,
-    staleTime: 30_000,        // évite les refetch en rafale au changement de filtre
-    refetchInterval: 60_000,  // rafraîchissement plus espacé
+    staleTime: 60_000,
   });
+
+  const showMonthSyncWait = monthlyReport && (isLoading || isFetching);
 
   const entries = data ?? [];
   const entriesWithPresence = useMemo(
@@ -324,11 +356,18 @@ export default function SellingReport() {
               )}
             </CardTitle>
             <div className="flex items-center gap-2">
-              {isLoading && <Loader2 className="h-4 w-4 animate-spin text-gray-400" />}
-              {!isLoading && presenceRefreshing && (
+              {showMonthSyncWait && (
+                <div className="flex items-center gap-2 text-amber-700">
+                  <Loader2 className="h-4 w-4 animate-spin shrink-0" />
+                  <span className="text-[11px] max-w-[240px] leading-tight">
+                    Synchronisation routeur (données complètes)…
+                  </span>
+                </div>
+              )}
+              {!showMonthSyncWait && presenceRefreshing && (
                 <span className="text-[11px] text-gray-400">Vérif. présence routeur…</span>
               )}
-              {!isLoading && (
+              {!showMonthSyncWait && (
                 <div className="flex flex-col items-end gap-0.5 text-right shrink-0">
                   <span className="text-xs text-gray-500 tabular-nums leading-tight">
                     {orderedFiltered.length} vente{orderedFiltered.length !== 1 ? "s" : ""} — <span className="font-semibold text-gray-700">{fmtAmount(totalAmount)} {currency}</span>
@@ -402,9 +441,24 @@ export default function SellingReport() {
 
             {/* Boutons : ligne 2 sur mobile (même ligne, scroll si besoin), inline sur sm+ */}
             <div className="flex gap-1.5 overflow-x-auto sm:contents">
-              <Button size="sm" className="gap-1.5 flex-shrink-0" onClick={applyFilter}>
+              <Button size="sm" className="gap-1.5 flex-shrink-0" onClick={applyFilter} disabled={isLoading || isFetching}>
                 <Search className="h-3.5 w-3.5" /> Filtrer
               </Button>
+              {monthlyReport && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="gap-1.5 flex-shrink-0"
+                  disabled={isLoading || isFetching}
+                  onClick={() => {
+                    forceSyncPendingRef.current = true;
+                    setForceSyncSeq((n) => n + 1);
+                  }}
+                  title="Forcer une resynchronisation complète du mois depuis le routeur"
+                >
+                  <RefreshCw className="h-3.5 w-3.5" /> Sync routeur
+                </Button>
+              )}
               <Button size="sm" variant="outline" className="gap-1.5 flex-shrink-0" onClick={showAll}>
                 <RotateCcw className="h-3.5 w-3.5" /> Tout
               </Button>
